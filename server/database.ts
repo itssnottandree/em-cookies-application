@@ -1,5 +1,6 @@
-import { drizzle } from 'drizzle-orm/neon-http';
-import { neon } from '@neondatabase/serverless';
+import { drizzle } from 'drizzle-orm/node-postgres';
+import pkg from 'pg';
+const { Pool } = pkg;
 import * as schema from '../shared/schema';
 import { eq, desc, sql, and } from 'drizzle-orm';
 import type { IStorage } from './storage';
@@ -18,7 +19,10 @@ if (!databaseUrl) {
   throw new Error('DATABASE_URL is not set');
 }
 
-const sql_client = neon(databaseUrl);
+const sql_client = new Pool({
+  connectionString: databaseUrl,
+  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
+});
 export const db = drizzle(sql_client, { schema });
 
 export class DatabaseStorage implements IStorage {
