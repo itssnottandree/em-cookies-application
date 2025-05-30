@@ -340,6 +340,57 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Temporary endpoint to fix production database
+  app.get("/fix-database-schema", async (req, res) => {
+    if (process.env.NODE_ENV !== 'production') {
+      return res.status(403).json({ error: "Only available in production" });
+    }
+    
+    try {
+      const { Client } = await import('pg');
+      const client = new Client({
+        connectionString: process.env.DATABASE_URL,
+        ssl: { rejectUnauthorized: false }
+      });
+      
+      await client.connect();
+      
+      // Check if old column exists
+      const result = await client.query(`
+        SELECT column_name 
+        FROM information_schema.columns 
+        WHERE table_name = 'users' AND column_name = 'password_hash'
+      `);
+
+      if (result.rows.length > 0) {
+        await client.query('ALTER TABLE users RENAME COLUMN password_hash TO "passwordHash"');
+        
+        // Create admin user if doesn't exist
+        const adminCheck = await client.query(`
+          SELECT * FROM users WHERE email = 'andree@emcookies.com'
+        `);
+
+        if (adminCheck.rows.length === 0) {
+          const bcrypt = await import('bcryptjs');
+          const hashedPassword = await bcrypt.hash('password', 10);
+          
+          await client.query(`
+            INSERT INTO users (name, email, "passwordHash", loyalty_points) 
+            VALUES ('Administrador', 'andree@emcookies.com', $1, 0)
+          `, [hashedPassword]);
+        }
+        
+        await client.end();
+        res.json({ success: true, message: "Database schema fixed successfully!" });
+      } else {
+        await client.end();
+        res.json({ success: true, message: "Database schema already correct" });
+      }
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }
