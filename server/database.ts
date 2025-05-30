@@ -35,6 +35,19 @@ export class DatabaseStorage implements IStorage {
       // First, ensure tables exist
       await this.createTablesIfNotExist();
       
+      // Check if admin user exists, if not create it
+      const adminUser = await this.getUserByEmail('andree@emcookies.com');
+      if (!adminUser) {
+        console.log('Creating admin user...');
+        const bcrypt = await import('bcryptjs');
+        const hashedPassword = await bcrypt.hash('password', 10);
+        await sql_client.query(`
+          INSERT INTO users (name, email, "passwordHash", loyalty_points) 
+          VALUES ('Administrador', 'andree@emcookies.com', $1, 0)
+        `, [hashedPassword]);
+        console.log('Admin user created successfully!');
+      }
+      
       // Check if sample products exist
       const existingProducts = await db.select().from(schema.products).limit(1);
       if (existingProducts.length === 0) {
@@ -95,11 +108,28 @@ export class DatabaseStorage implements IStorage {
           id SERIAL PRIMARY KEY,
           name VARCHAR(255) NOT NULL,
           email VARCHAR(255) UNIQUE NOT NULL,
-          password_hash VARCHAR(255) NOT NULL,
+          "passwordHash" VARCHAR(255) NOT NULL,
           loyalty_points INTEGER DEFAULT 0,
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
       `);
+
+      // Fix existing table structure if needed
+      try {
+        const columnCheck = await sql_client.query(`
+          SELECT column_name 
+          FROM information_schema.columns 
+          WHERE table_name = 'users' AND column_name = 'password_hash'
+        `);
+        
+        if (columnCheck.rows.length > 0) {
+          console.log('Fixing password column name...');
+          await sql_client.query('ALTER TABLE users RENAME COLUMN password_hash TO "passwordHash"');
+          console.log('Column renamed successfully!');
+        }
+      } catch (columnError) {
+        console.log('Column fix not needed or already applied');
+      }
 
       await sql_client.query(`
         CREATE TABLE IF NOT EXISTS products (
@@ -145,7 +175,7 @@ export class DatabaseStorage implements IStorage {
       `);
 
       await sql_client.query(`
-       CREATE TABLE IF NOT EXISTS admins (
+        CREATE TABLE IF NOT EXISTS admins (
           id SERIAL PRIMARY KEY,
           username VARCHAR(255) UNIQUE NOT NULL,
           password VARCHAR(255) NOT NULL,
