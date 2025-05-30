@@ -35,16 +35,41 @@ export class DatabaseStorage implements IStorage {
       // First, ensure tables exist
       await this.createTablesIfNotExist();
       
-      // Check if admin user exists, if not create it
-      const adminUser = await this.getUserByEmail('andree@emcookies.com');
+      // Check if admin user exists using raw SQL to avoid schema issues
+      let adminUser;
+      try {
+        adminUser = await this.getUserByEmail('andree@emcookies.com');
+      } catch (error) {
+        // If there's a schema error, try with raw SQL
+        try {
+          const result = await sql_client.query('SELECT * FROM users WHERE email = $1', ['andree@emcookies.com']);
+          adminUser = result.rows[0];
+        } catch (rawError) {
+          console.log('Could not check for admin user, will create if needed');
+        }
+      }
+      
       if (!adminUser) {
         console.log('Creating admin user...');
         const bcrypt = await import('bcryptjs');
         const hashedPassword = await bcrypt.hash('password', 10);
-        await sql_client.query(`
-          INSERT INTO users (name, email, "passwordHash", loyalty_points) 
-          VALUES ('Administrador', 'andree@emcookies.com', $1, 0)
-        `, [hashedPassword]);
+        
+        // Try with new column name first, fallback to old name
+        try {
+          await sql_client.query(`
+            INSERT INTO users (name, email, "passwordHash", loyalty_points) 
+            VALUES ('Administrador', 'andree@emcookies.com', $1, 0)
+          `, [hashedPassword]);
+        } catch (newColumnError) {
+          try {
+            await sql_client.query(`
+              INSERT INTO users (name, email, password_hash, loyalty_points) 
+              VALUES ('Administrador', 'andree@emcookies.com', $1, 0)
+            `, [hashedPassword]);
+          } catch (oldColumnError) {
+            console.error('Failed to create admin user:', oldColumnError);
+          }
+        }
         console.log('Admin user created successfully!');
       }
       
