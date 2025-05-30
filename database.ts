@@ -219,8 +219,31 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getUserByEmail(email: string): Promise<User | undefined> {
-    const result = await db.select().from(schema.users).where(eq(schema.users.email, email)).limit(1);
-    return result[0];
+    try {
+      const result = await db.select().from(schema.users).where(eq(schema.users.email, email)).limit(1);
+      return result[0];
+    } catch (error: any) {
+      // If column doesn't exist, try with raw SQL using old column name
+      if (error.message?.includes('passwordHash')) {
+        try {
+          const result = await sql_client.query('SELECT * FROM users WHERE email = $1 LIMIT 1', [email]);
+          if (result.rows.length > 0) {
+            const user = result.rows[0];
+            return {
+              id: user.id,
+              name: user.name,
+              email: user.email,
+              passwordHash: user.password_hash, // Map old column to new property
+              loyaltyPoints: user.loyalty_points,
+              createdAt: user.created_at
+            };
+          }
+        } catch (fallbackError) {
+          console.error('Fallback query failed:', fallbackError);
+        }
+      }
+      throw error;
+    }
   }
 
   async createUser(insertUser: InsertUser): Promise<User> {
