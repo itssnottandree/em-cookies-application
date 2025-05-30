@@ -392,5 +392,25 @@ export class DatabaseStorage implements IStorage {
       }).from(schema.users),
       db.select({
         count: sql<number>`count(*)`
-      }).from(schema.products).where(eq(schema.products.isActive, true)),
-      db.select().from(schema.orders
+}).from(schema.products).where(eq(schema.products.isActive, true)),
+      db.select().from(schema.orders)
+        .orderBy(desc(schema.orders.createdAt))
+        .limit(10)
+    ]);
+    
+    const totalOrders = ordersResult[0]?.count || 0;
+    const totalRevenue = ordersResult[0]?.total || 0;
+    const totalUsers = usersResult[0]?.count || 0;
+    const totalProducts = productsResult[0]?.count || 0;
+    return {
+      totalOrders,
+      totalRevenue,
+      totalUsers,
+      totalProducts,
+      recentOrders: recentOrdersResult,
+      topProducts: [],
+      ordersByStatus: [],
+      dailyStats: []
+    };
+  }
+}
